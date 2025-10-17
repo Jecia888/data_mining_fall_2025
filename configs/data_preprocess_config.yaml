@@ -1,0 +1,57 @@
+
+stocks:
+  - AAPL    # Apple
+  - MSFT    # Microsoft
+  - AMZN    # Amazon
+  - GOOGL   # Alphabet (Google)
+  - META    # Meta Platforms
+  - TSLA    # Tesla
+  - NVDA    # Nvidia
+  - BRK.B   # Berkshire Hathaway
+  - JPM     # JPMorgan Chase
+  - V       # Visa
+  - JNJ     # Johnson & Johnson
+  - WMT     # Walmart
+  - PG      # Procter & Gamble
+  - MA      # Mastercard
+  - HD      # Home Depot
+  - XOM     # Exxon Mobil
+  - UNH     # UnitedHealth
+  - DIS     # Disney
+  - PFE     # Pfizer
+  - KO      # Coca-Cola
+
+date_range:
+  from: "2025-01-01"
+  to: "2025-10-17"
+  granularity: "week"    
+  multiplier: 1             # e.g., 1 week, 2 weeks, etc.
+
+fetch:
+  # ---- Price / Market Data ----
+  aggregates: true           
+  previous_close: false
+  snapshots: true
+
+  # ---- Fundamentals / Reference ----
+  ticker_details: true
+  dividends: true
+  splits: true
+  financials: true
+
+  # ---- Technical Indicators ----
+  moving_averages: true
+  volatility: true
+  momentum: true
+  custom_indicators: true
+
+  # ---- Miscellaneous ----
+  news: true
+  market_status: true 
+
+api_settings:
+  api_key: "YOUR API KEY HERE"
+  adjusted: true
+  max_results_per_call: 50000
+  parallel_downloads: true
+  trace_requests: false

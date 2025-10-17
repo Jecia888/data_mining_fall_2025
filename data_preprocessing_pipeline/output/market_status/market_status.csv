@@ -1,0 +1,2 @@
+after_hours,currencies,early_hours,exchanges,indicesGroups,market,server_time
+False,"MarketCurrencies(crypto='open', fx='open')",False,"MarketExchanges(nasdaq='open', nyse='open', otc='open')","MarketIndices(s_and_p='open', societe_generale='open', cgi='open', msci='open', ftse_russell='open', mstar='open', mstarc='open', cccy='open', nasdaq='open', dow_jones='open')",open,2025-10-17T15:19:30-04:00
