@@ -1,0 +1,380 @@
+###########Target Features##########
+
+
+Intermediate:
+
+r_close
+
+spread_vwap_norm
+
+volume_z_by_tod
+
+bb_bw_20
+
+ATR_14_day_mean
+
+
+
+AGG:
+
+ret_oc
+
+rv
+
+ret_open15
+
+ret_last10
+
+trend_persistence
+
+reversal_score
+
+mabs_svn
+
+eod_svn
+
+vol_last10_frac
+
+hi2_frac
+
+valid_ratio_day
+
+
+
+
+CWT:
+
+r_close_CWT_power_lo
+
+r_close_CWT_power_mid
+
+r_close_CWT_power_hi
+
+r_close_CWT_centroid_period_bars
+
+r_close_CWT_peak_period_bars
+
+r_close_CWT_peak_ratio
+
+r_close_CWT_temporal_compactness
+
+
+
+
+FFT:
+
+r_close_power_total
+
+r_close_pct_lo
+
+r_close_pct_hi
+
+r_close_centroid_period_bars
+
+r_close_dom_period_bars
+
+volume_z_by_tod_pct_lo
+
+volume_z_by_tod_pct_hi
+
+volume_z_by_tod_centroid_period_bars
+
+bb_bw_20_pct_lo
+
+bb_bw_20_pct_hi
+
+bb_bw_20_centroid_period_bars
+
+
+###########Below is Dictionary###########
+
+
+intermediate_dataset
+
+
+timestamp — The bar’s wall-clock time in America/New_York (ET); it identifies when the bar occurred; computed as tz-aware ET and defensively floored to the bar boundary (e.g., minute).
+
+open — The first trade price in the bar; it captures where trading began for that interval; taken directly from Polygon aggregates.
+
+high — The highest trade price in the bar; it measures the peak price reached during the interval; taken directly from Polygon aggregates.
+
+low — The lowest trade price in the bar; it measures the trough price during the interval; taken directly from Polygon aggregates.
+
+close — The last trade price in the bar; it summarizes where trading ended for that interval; taken directly from Polygon aggregates.
+
+volume — The traded size in the bar; it measures total shares/contracts exchanged; taken directly from Polygon aggregates.
+
+vwap — The volume-weighted average price for the bar; it measures a “fair” price level weighted by traded size; taken from Polygon’s VWAP field when available.
+
+transactions — The number of executed trades in the bar; it measures tape activity or trade count; taken directly from Polygon aggregates.
+
+macd — A fast-minus-slow trend signal; it measures short-term momentum versus longer trend; computed as EMA_12(close) − EMA_26(close).
+
+macd_signal — A smoothed version of MACD; it measures the stabilized trend signal; computed as EMA_9(macd).
+
+macd_hist — The deviation of MACD from its signal; it measures momentum bursts; computed as macd − macd_signal.
+
+bb_mid_20 — The 20-bar midline of Bollinger Bands; it measures the central tendency; computed as SMA_20(close).
+
+bb_up_20 — The upper Bollinger Band; it measures an upper volatility envelope; computed as bb_mid_20 + 2*STD_20(close).
+
+bb_dn_20 — The lower Bollinger Band; it measures a lower volatility envelope; computed as bb_mid_20 − 2*STD_20(close).
+
+bb_bw_20 — The Bollinger Band relative width; it measures volatility scaled by level; computed as (bb_up_20 − bb_dn_20) / bb_mid_20.
+
+stoch_k_14 — The 14-bar stochastic %K; it measures the close’s position within the recent high–low range; computed as 100*(close − low_14)/(high_14 − low_14).
+
+stoch_d_14 — The smoothed stochastic %D; it measures a slower oscillator; computed as SMA_3(stoch_k_14).
+
+obv — On-Balance Volume; it measures volume flow aligned with price direction; computed cumulatively by adding volume on up closes, subtracting on down closes, and holding when unchanged.
+
+sma_20 — The 20-bar simple moving average; it measures short-term trend; computed as the rolling mean of close over 20 bars.
+
+sma_50 — The 50-bar simple moving average; it measures intermediate trend; computed as the rolling mean of close over 50 bars.
+
+ema_12 — The 12-bar exponential moving average; it measures a responsive short-term trend; computed as EWM with span 12 (adjust=False).
+
+ema_26 — The 26-bar exponential moving average; it measures a slower baseline trend; computed as EWM with span 26 (adjust=False).
+
+rsi_14 — The 14-bar Relative Strength Index (0–100); it measures the balance of recent gains to losses; computed via EWMs of positive and negative deltas with RSI = 100 − 100/(1 + RS).
+
+volatility_20 — The 20-bar realized volatility proxy; it measures dispersion of recent returns; computed as the rolling standard deviation of close.pct_change() over 20 bars.
+
+atr_14 — The 14-bar Average True Range; it measures direction-agnostic range including gaps; computed as the rolling mean of TR = max(high−low, |high−close_{t−1}|, |low−close_{t−1}|).
+
+day_id — The trading-day identifier in ET; it groups bars by calendar day; computed as the tz-aware ET date derived from timestamp.
+
+is_gap — The pre-fill gap flag; it measures whether key price/volume fields were missing; computed as 1 if any primary field was NaN before limited within-day filling, else 0.
+
+session — The session label; it distinguishes intraday Regular Trading Hours (“rth”, 09:30–16:00 ET) from daily mode; computed by filtering intraday data to ET RTH and tagging rows.
+
+bar_index_since_open — The zero-based bar counter within each ET day; it measures position in the session; computed by counting RTH bars from the day’s open.
+
+minutes_since_open — The minutes elapsed since 09:30 ET; it measures time-of-day for intraday data; computed as the minute difference from the ET open (primarily for minute cadence).
+
+spread_vwap — The close-to-VWAP deviation; it measures where the bar closed relative to its volume-weighted price; computed as close − vwap.
+
+r_close — The per-bar robust log return; it measures multiplicative price change per bar; computed after limited fills as ln(close_t) − ln(close_{t−1}) with the first bar of each day set to 0.
+
+ATR_14_day_mean — The day-level average ATR; it measures the day’s typical intraday range; computed as the per-day mean of atr_14 grouped by day_id.
+
+spread_vwap_norm — The volatility-normalized VWAP spread; it measures close–VWAP deviation relative to the day’s range; computed as spread_vwap / ATR_14_day_mean.
+
+volume_z_by_tod — The time-of-day volume z-score; it measures how unusual a bar’s volume is for its bar-of-day position; computed as (volume − mean_k)/std_k where k indexes the same bar position across days (0 if std is 0 or missing).
+
+
+
+AGG (stand for aggregates features)
+
+
+ticker — The security identifier for the row, set to the ticker symbol (e.g., AAPL).
+
+day_id — The trading-day identifier in America/New_York time, stored as a tz-aware ET date at midnight for grouping.
+
+day_start_ts — The start timestamp of the RTH session for that day, computed as 09:30:00 ET.
+
+day_end_ts — The end timestamp of the RTH session for that day, computed as 16:00:00 ET.
+
+feature_ts — The canonical timestamp for the day’s features, set equal to the RTH session end (16:00:00 ET).
+
+AGG_gap_ratio — The fraction of intraday bars in the day that had missing primary fields before limited within-day filling, computed as the mean of the is_gap flag.
+
+AGG_max_consecutive_gap — The longest run length of consecutive bars that had pre-fill gaps, computed as the maximum consecutive ones in is_gap.
+
+AGG_N — The number of intraday bars considered for the day after RTH filtering (e.g., 390 for minute cadence or 6 for hour cadence).
+
+valid_bars — The count of bars with a finite per-bar log return, computed as the number of finite values in r_close for that day.
+
+valid_ratio_day — The share of bars with a finite per-bar log return, computed as valid_bars / AGG_N.
+
+ret_oc — The open-to-close day return in log terms, computed as the sum of per-bar log returns r_close over the RTH session.
+
+rv — The realized variance proxy for the day, computed as the sum of squared per-bar log returns r_close^2 over the RTH session.
+
+ret_open15 — The log return contributed by the market’s first 15 minutes, computed as the sum of r_close over bars with 0–14 minutes since open, emitted only if that window’s valid-data ratio meets the configured threshold.
+
+ret_last10 — The log return contributed by the market’s last 10 minutes, computed as the sum of r_close over bars with 380–389 minutes since open (minute cadence), emitted only if that window’s valid-data ratio meets the configured threshold.
+
+trend_persistence — The longest streak of consecutive bars with the same return sign (up or down), computed from r_close when the day has at least the configured minimum number of valid bars.
+
+reversal_score — A day-level reversal indicator, computed as the Pearson correlation between time-of-day (minutes since open) and cumulative returns, gated on a minimum valid-data ratio for the full day.
+
+mabs_svn — The average magnitude of normalized close-to-VWAP deviations, computed as the mean of abs(spread_vwap_norm) over the day.
+
+eod_svn — The end-of-day normalized close-to-VWAP deviation, computed as the last non-missing value of spread_vwap_norm within the day.
+
+vol_last10_frac — The fraction of the day’s total volume traded in the last 10 minutes, computed as volume in minutes 380–389 divided by total RTH volume.
+
+hi2_frac — The share of bars with unusually high volume for their time-of-day, computed as the fraction of bars where volume_z_by_tod > 2.
+
+open15_valid_ratio — The observed valid-data ratio within the first-15-minutes window, computed as the fraction of bars in that window with finite r_close.
+
+last10_valid_ratio — The observed valid-data ratio within the last-10-minutes window, computed as the fraction of bars in that window with finite r_close.
+
+reversal_valid_ratio — The valid-data ratio used when computing reversal_score, computed as the fraction of bars for which both time-of-day and per-bar returns were usable.
+
+
+
+CWT
+
+
+ticker — The security identifier for this row, set to the instrument’s ticker symbol (e.g., AAPL).
+
+window_cadence — The reporting window level (day/week/month/quarter/year) over which features are computed, as configured in YAML.
+
+win_start — The ET timestamp of the first bar included in the window, taken as the minimum timestamp within the grouped slice.
+
+win_end — The ET timestamp marking the right edge of the window (e.g., end of week/month), taken from the pandas Grouper label with label='right', closed='right'.
+
+days — The number of unique ET trading days included in the window, computed from the per-row ET dates.
+
+expected_bars — The expected bar count under RTH for the window, computed as days × bars_per_day where bars_per_day is 390 (minute), 6 (hour), or 1 (day).
+
+r_close_CWT_power_lo — The fraction of wavelet energy in low frequencies (long periods) of r_close, computed as energy integrated over periods > lo_min_period_bars divided by total energy after cone-of-influence masking.
+
+r_close_CWT_power_mid — The fraction of wavelet energy in mid frequencies of r_close, computed as energy integrated over periods between mid_min_period_bars and mid_max_period_bars divided by total energy after masking.
+
+r_close_CWT_power_hi — The fraction of wavelet energy in high frequencies (short periods) of r_close, computed as energy integrated over periods < hi_max_period_bars divided by total energy after masking.
+
+r_close_CWT_centroid_period_bars — The power-weighted average period (in bars) of the wavelet spectrum for r_close, computed as the inverse of the power-weighted mean frequency (∑ f·P / ∑ P, then period = 1/f).
+
+r_close_CWT_peak_period_bars — The dominant period (in bars) at which wavelet power for r_close is maximal, computed as the period at the global argmax of the power surface.
+
+r_close_CWT_peak_ratio — The concentration of energy at the dominant point, computed as the maximum wavelet power divided by total power over the window.
+
+r_close_CWT_temporal_compactness — The temporal compactness of energy, computed as the Gini coefficient of per-time energy (scale-summed power), where higher values indicate energy concentrated in fewer moments.
+
+r_close_CWT_N — The number of bars used for the transform within the window, equal to the length of the cleaned r_close sequence processed by CWT.
+
+r_close_CWT_gap_ratio — The fraction of expected bars that were missing (non-finite) in r_close within the window, computed as 1 − (n_valid / expected_bars).
+
+r_close_CWT_max_gap_run — The longest consecutive run of missing values in r_close within the window, computed on the NaN mask.
+
+
+
+FFT
+
+
+ticker — The security identifier for this row, set to the instrument’s ticker symbol (e.g., AAPL).
+
+window_cadence — The reporting window level (day/week/month/quarter/year) over which Welch features are computed, as configured in YAML.
+
+win_start — The ET timestamp of the first bar included in the window, taken as the minimum timestamp within the grouped slice.
+
+win_end — The ET timestamp marking the right edge of the window (e.g., end of week/month), taken from the pandas Grouper with label='right', closed='right'.
+
+days — The number of unique ET trading days included in the window, computed from per-row ET dates.
+
+expected_bars — The expected bar count under RTH for the window, computed as days × bars_per_day where bars_per_day is 390 (minute), 6 (hour), or 1 (day).
+
+spread_vwap_norm_power_total — Total Welch spectral power of spread_vwap_norm over all positive frequencies after masking, measuring overall fluctuation energy in the window.
+
+spread_vwap_norm_power_lo — Welch power of spread_vwap_norm in the low-frequency band (long periods), measuring slow swings within the window.
+
+spread_vwap_norm_power_mid — Welch power of spread_vwap_norm in the mid-frequency band, measuring intermediate-tempo oscillations.
+
+spread_vwap_norm_power_hi — Welch power of spread_vwap_norm in the high-frequency band (short periods), measuring rapid fluctuations.
+
+spread_vwap_norm_pct_lo — Fraction of total Welch power for spread_vwap_norm that lies in the low-frequency band, indicating dominance of slow movements.
+
+spread_vwap_norm_pct_mid — Fraction of total Welch power for spread_vwap_norm that lies in the mid-frequency band, indicating medium-tempo activity.
+
+spread_vwap_norm_pct_hi — Fraction of total Welch power for spread_vwap_norm that lies in the high-frequency band, indicating fast jitter.
+
+spread_vwap_norm_dom_freq_cpb — Dominant frequency of spread_vwap_norm in cycles-per-bar, taken at the PSD maximum, indicating the most pronounced rhythm.
+
+spread_vwap_norm_dom_period_bars — Dominant period of spread_vwap_norm in bars, computed as 1 / dom_freq_cpb, indicating how many bars one dominant cycle spans.
+
+spread_vwap_norm_centroid_freq_cpb — Power-weighted mean frequency of spread_vwap_norm (cycles-per-bar), the spectral “center of mass.”
+
+spread_vwap_norm_centroid_period_bars — Power-weighted mean period of spread_vwap_norm in bars, computed as 1 / centroid_freq_cpb.
+
+spread_vwap_norm_FFT_N — Number of valid bars of spread_vwap_norm used in the Welch computation within the window.
+
+spread_vwap_norm_gap_ratio — Fraction of expected bars for spread_vwap_norm that were missing, computed as 1 − (n_valid / expected_bars).
+
+spread_vwap_norm_max_gap_run — Longest consecutive run of missing spread_vwap_norm values within the window.
+
+volume_z_by_tod_power_total — Total Welch spectral power of volume_z_by_tod, measuring overall fluctuation energy in standardized volume.
+
+volume_z_by_tod_power_lo — Welch power of volume_z_by_tod in the low-frequency band, capturing slow volume patterns.
+
+volume_z_by_tod_power_mid — Welch power of volume_z_by_tod in the mid-frequency band, capturing medium-tempo volume oscillations.
+
+volume_z_by_tod_power_hi — Welch power of volume_z_by_tod in the high-frequency band, capturing rapid volume bursts.
+
+volume_z_by_tod_pct_lo — Fraction of total Welch power for volume_z_by_tod in the low-frequency band, indicating dominance of slow changes.
+
+volume_z_by_tod_pct_mid — Fraction of total Welch power for volume_z_by_tod in the mid-frequency band, indicating medium-tempo activity.
+
+volume_z_by_tod_pct_hi — Fraction of total Welch power for volume_z_by_tod in the high-frequency band, indicating fast spikes.
+
+volume_z_by_tod_dom_freq_cpb — Dominant frequency of volume_z_by_tod in cycles-per-bar (PSD maximum), indicating the strongest repeating tempo.
+
+volume_z_by_tod_dom_period_bars — Dominant period of volume_z_by_tod in bars, computed as 1 / dom_freq_cpb.
+
+volume_z_by_tod_centroid_freq_cpb — Power-weighted mean frequency of volume_z_by_tod (cycles-per-bar), the spectral center.
+
+volume_z_by_tod_centroid_period_bars — Power-weighted mean period of volume_z_by_tod in bars, computed as 1 / centroid_freq_cpb.
+
+volume_z_by_tod_FFT_N — Number of valid bars of volume_z_by_tod used for Welch within the window.
+
+volume_z_by_tod_gap_ratio — Fraction of expected bars for volume_z_by_tod that were missing, computed as 1 − (n_valid / expected_bars).
+
+volume_z_by_tod_max_gap_run — Longest consecutive run of missing volume_z_by_tod values within the window.
+
+r_close_power_total — Total Welch spectral power of r_close (per-bar log return), measuring overall return fluctuation energy in the window.
+
+r_close_power_lo — Welch power of r_close in the low-frequency band, reflecting slower trend-like variability.
+
+r_close_power_mid — Welch power of r_close in the mid-frequency band, reflecting intermediate-tempo moves.
+
+r_close_power_hi — Welch power of r_close in the high-frequency band, reflecting fast, short-term volatility.
+
+r_close_pct_lo — Fraction of total Welch power for r_close in the low-frequency band, indicating slow-cycle dominance.
+
+r_close_pct_mid — Fraction of total Welch power for r_close in the mid-frequency band, indicating medium-cycle dominance.
+
+r_close_pct_hi — Fraction of total Welch power for r_close in the high-frequency band, indicating fast-cycle dominance.
+
+r_close_dom_freq_cpb — Dominant frequency of r_close in cycles-per-bar (PSD maximum), indicating the most pronounced return rhythm.
+
+r_close_dom_period_bars — Dominant period of r_close in bars, computed as 1 / dom_freq_cpb.
+
+r_close_centroid_freq_cpb — Power-weighted mean frequency of r_close (cycles-per-bar), the spectral center.
+
+r_close_centroid_period_bars — Power-weighted mean period of r_close in bars, computed as 1 / centroid_freq_cpb.
+
+r_close_FFT_N — Number of valid r_close bars used in the Welch computation within the window.
+
+r_close_gap_ratio — Fraction of expected bars for r_close that were missing, computed as 1 − (n_valid / expected_bars).
+
+r_close_max_gap_run — Longest consecutive run of missing r_close values within the window.
+
+bb_bw_20_power_total — Total Welch spectral power of bb_bw_20 (Bollinger Band relative width), measuring overall volatility-band fluctuation energy.
+
+bb_bw_20_power_lo — Welch power of bb_bw_20 in the low-frequency band, highlighting slow changes in relative band width.
+
+bb_bw_20_power_mid — Welch power of bb_bw_20 in the mid-frequency band, highlighting medium-tempo changes in band width.
+
+bb_bw_20_power_hi — Welch power of bb_bw_20 in the high-frequency band, highlighting rapid changes in band width.
+
+bb_bw_20_pct_lo — Fraction of total Welch power for bb_bw_20 in the low-frequency band, indicating dominance of slow band-width movements.
+
+bb_bw_20_pct_mid — Fraction of total Welch power for bb_bw_20 in the mid-frequency band, indicating medium-tempo movements.
+
+bb_bw_20_pct_hi — Fraction of total Welch power for bb_bw_20 in the high-frequency band, indicating rapid movements.
+
+bb_bw_20_dom_freq_cpb — Dominant frequency of bb_bw_20 in cycles-per-bar (PSD maximum), indicating the strongest repeating tempo of band-width changes.
+
+bb_bw_20_dom_period_bars — Dominant period of bb_bw_20 in bars, computed as 1 / dom_freq_cpb.
+
+bb_bw_20_centroid_freq_cpb — Power-weighted mean frequency of bb_bw_20 (cycles-per-bar), the spectral center.
+
+bb_bw_20_centroid_period_bars — Power-weighted mean period of bb_bw_20 in bars, computed as 1 / centroid_freq_cpb.
+
+bb_bw_20_FFT_N — Number of valid bb_bw_20 bars used for Welch within the window.
+
+bb_bw_20_gap_ratio — Fraction of expected bars for bb_bw_20 that were missing, computed as 1 − (n_valid / expected_bars).
+
+bb_bw_20_max_gap_run — Longest consecutive run of missing bb_bw_20 values within the window.

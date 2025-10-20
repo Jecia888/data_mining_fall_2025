@@ -2,32 +2,27 @@
 # -*- coding: utf-8 -*-
 """
 Merge + align minute features from two folders, RTH-only, and preprocess.
+**With r_close repair & QC**
 
-Specification / Key Changes:
+Key points:
 - Baseline timeline = custom_indicators_minute
-- Restrict to RTH (Regular Trading Hours) 09:30–16:00 America/New_York
-- Join indicators_minute features onto the baseline timestamps
-- Missing-value imputation = average of nearest valid neighbors (two-sided)
-  **Now grouped by day + limited fill length (default limit = 3 minutes)**
-      val = (ffill(limit) + bfill(limit)) / 2
-      if only one side exists -> use that side
-      if neither exists (beyond limit) -> keep NaN (marked by is_gap for downstream weighting)
-- Compute standard preprocessing columns:
-    session='rth'
-    day_id (ET date)
-    minutes_since_open (0..389)
-    is_gap (rows that had any NaN before fill on baseline OHLCV/VWAP/volume)
-    spread_vwap = close - vwap
-    ATR_14_day_mean (per-day mean of atr_14)
-    spread_vwap_norm = spread_vwap / ATR_14_day_mean
-    volume_z_by_tod = z-score of volume by minute-of-day across all days for that ticker
+- Restrict to RTH (09:30–16:00 America/New_York)
+- Join indicators_minute features onto baseline timestamps
+- Missing-value imputation = two-sided average within each day, limited length (default 3 min)
+- Compute standard preprocessing columns
+- **Robust r_close**:
+    * Force numeric for close
+    * r_close-only light fill per day (limit=1), then log returns (first minute=0)
+    * Per-day QC: if r_close valid ratio < min_valid, retry only for those days with extra_limit
+    * Never fabricate across long gaps; keep NaN where uncertainty is large
 - Output: one CSV per ticker in --out_dir
+- Optional QC CSV with per-day r_close valid ratio summary
 """
 
 import os
 import glob
 import argparse
-from typing import List
+from typing import List, Tuple
 import numpy as np
 import pandas as pd
 
@@ -79,10 +74,10 @@ def read_minutes_csv(path: str) -> pd.DataFrame:
 
 
 def rth_mask(idx: pd.DatetimeIndex) -> pd.Series:
-    """Return boolean mask for 09:30 ≤ t < 16:00 ET."""
+    """Return boolean mask for 09:30 ≤ t <= 16:00 ET."""
     t = idx.tz_convert(NY_TZ)
     return pd.Series(
-        [(pd.Timestamp("09:30").time() <= hh < pd.Timestamp("16:00").time()) for hh in t.time],
+        [(pd.Timestamp("09:30").time() <= hh <= pd.Timestamp("16:00").time()) for hh in t.time],
         index=idx
     )
 
@@ -151,9 +146,94 @@ def add_volume_z_by_tod(df: pd.DataFrame) -> pd.Series:
     return z.fillna(0.0)
 
 
+# ------------------------ r_close helpers (repair + QC) ------------------------ #
+
+def _fill_limited_per_day(s: pd.Series, limit: int) -> pd.Series:
+    """Per-day limited ffill/bfill for a series (no cross-day spill)."""
+    return s.ffill(limit=limit).bfill(limit=limit)
+
+def _compute_rclose_from_close(close_series: pd.Series) -> pd.Series:
+    """Log returns per day; first minute set to 0."""
+    rc = np.log(close_series) - np.log(close_series.shift(1))
+    if len(rc) > 0:
+        rc.iloc[0] = 0.0
+    return rc
+
+def _rclose_repair_and_qc(df: pd.DataFrame,
+                          rclose_fill_limit: int = 1,
+                          rclose_min_valid: float = 0.70,
+                          rclose_extra_limit: int = 2) -> Tuple[pd.Series, pd.DataFrame]:
+    """
+    Build r_close robustly with:
+      - force numeric close
+      - per-day limited fill for r_close input
+      - mask nonpositive closes
+      - QC per day; retry with extra_limit where valid ratio < threshold
+    Returns: (r_close_series_aligned_to_df_index, qc_dataframe)
+    """
+    # Force numeric to avoid hidden strings
+    close_numeric = pd.to_numeric(df["close"], errors="coerce")
+
+    # Prepare container aligned to df.index
+    r_close_out = pd.Series(index=df.index, dtype=float)
+
+    # Group by ET date
+    day_groups = df.groupby(pd.to_datetime(df.index.tz_convert(NY_TZ).date))
+    qc_rows = []
+
+    for day, gidx in day_groups.groups.items():
+        idx = df.index.isin(df.loc[gidx].index)
+        g_close = close_numeric[idx].copy()
+
+        # Stage 1: light fill
+        g_filled = _fill_limited_per_day(g_close, limit=rclose_fill_limit)
+        g_filled = g_filled.mask(g_filled <= 0, np.nan)  # avoid log(<=0)
+        rc1 = _compute_rclose_from_close(g_filled)
+        valid1 = np.isfinite(rc1).mean() if len(rc1) else 0.0
+
+        # If low coverage and extra_limit allows, Stage 2 retry only for this day
+        if valid1 < rclose_min_valid and rclose_extra_limit > rclose_fill_limit:
+            g_filled2 = _fill_limited_per_day(g_close, limit=rclose_extra_limit)
+            g_filled2 = g_filled2.mask(g_filled2 <= 0, np.nan)
+            rc2 = _compute_rclose_from_close(g_filled2)
+            valid2 = np.isfinite(rc2).mean() if len(rc2) else 0.0
+
+            # Choose the better one (higher valid ratio)
+            if valid2 > valid1:
+                r_close_out[idx] = rc2
+                used_limit = rclose_extra_limit
+                final_valid = valid2
+            else:
+                r_close_out[idx] = rc1
+                used_limit = rclose_fill_limit
+                final_valid = valid1
+        else:
+            r_close_out[idx] = rc1
+            used_limit = rclose_fill_limit
+            final_valid = valid1
+
+        qc_rows.append({
+            "day_id": pd.Timestamp(day).date(),
+            "rclose_valid_ratio": float(final_valid),
+            "rclose_limit_used": int(used_limit),
+            "N": int(idx.sum())
+        })
+
+    qc_df = pd.DataFrame(qc_rows).sort_values("day_id")
+    return r_close_out, qc_df
+
+
 # ------------------------ main pipeline per ticker ------------------------ #
 
-def process_one_ticker(ticker: str, custom_path: str, indicator_path: str, out_dir: str, fill_limit: int = 3):
+def process_one_ticker(ticker: str,
+                       custom_path: str,
+                       indicator_path: str,
+                       out_dir: str,
+                       fill_limit: int = 3,
+                       rclose_fill_limit: int = 1,
+                       rclose_min_valid: float = 0.70,
+                       rclose_extra_limit: int = 2,
+                       write_qc: bool = True):
     print(f"[{ticker}] reading custom:", custom_path)
     df_custom = read_minutes_csv(custom_path)
 
@@ -185,11 +265,11 @@ def process_one_ticker(ticker: str, custom_path: str, indicator_path: str, out_d
     # Add day_id BEFORE filling (for per-day fill grouping)
     df["day_id"] = pd.to_datetime(df.index.tz_convert(NY_TZ).date)
 
-    # Flag rows with NaNs in primary columns BEFORE filling
+    # Flag rows with NaNs in primary columns BEFORE global filling
     had_nan_primary = df[PRIMARY_PRICE_COLS].isna().any(axis=1)
     df["is_gap"] = had_nan_primary.astype(np.int8)
 
-    # Group-by-day + limited two-sided average fill (avoid cross-day filling and long gaps)
+    # ---- General per-day limited fill for numeric cols (avoid cross-day) ----
     numeric_cols = [c for c in df.columns if c != "is_gap" and pd.api.types.is_numeric_dtype(df[c])]
     df[numeric_cols] = df.groupby("day_id", group_keys=False)[numeric_cols].apply(
         lambda g: g.apply(lambda s: two_sided_avg_fill_limited(s, limit=fill_limit))
@@ -205,13 +285,14 @@ def process_one_ticker(ticker: str, custom_path: str, indicator_path: str, out_d
     else:
         df["spread_vwap"] = np.nan
 
-    # Derived: r_close (log return per day, set first minute to 0)
-    def _log_ret(s: pd.Series) -> pd.Series:
-        rc = np.log(s) - np.log(s.shift(1))
-        if len(rc) > 0:
-            rc.iloc[0] = 0.0
-        return rc
-    df["r_close"] = df.groupby("day_id")["close"].apply(_log_ret)
+    # -------- Robust r_close (repair + QC) --------
+    r_close_series, qc_df = _rclose_repair_and_qc(
+        df,
+        rclose_fill_limit=rclose_fill_limit,
+        rclose_min_valid=rclose_min_valid,
+        rclose_extra_limit=rclose_extra_limit
+    )
+    df["r_close"] = r_close_series
 
     # Per-day mean ATR_14 & normalized spread_vwap
     if "atr_14" in df.columns:
@@ -228,15 +309,30 @@ def process_one_ticker(ticker: str, custom_path: str, indicator_path: str, out_d
     else:
         df["volume_z_by_tod"] = np.nan
 
-    # Save results
+    # ---- Save results ----
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{ticker}.csv")
     df.to_csv(out_path, index_label="timestamp")
     print(f"[{ticker}] done → {out_path} (rows={len(df)})")
 
+    # ---- QC summary (print & optional csv) ----
+    low_days = qc_df.loc[qc_df["rclose_valid_ratio"] < rclose_min_valid]
+    ok_ratio = (1.0 - len(low_days) / len(qc_df)) if len(qc_df) else 1.0
+    print(f"[{ticker}] r_close QC: days={len(qc_df)}, "
+          f"median_valid={qc_df['rclose_valid_ratio'].median():.3f}, "
+          f"min_valid={qc_df['rclose_valid_ratio'].min():.3f}, "
+          f"days_below_thresh={len(low_days)} "
+          f"({ok_ratio:.0%} days meet threshold {rclose_min_valid:.2f})")
+    if write_qc:
+        qc_dir = os.path.join(out_dir, "_qc")
+        os.makedirs(qc_dir, exist_ok=True)
+        qc_path = os.path.join(qc_dir, f"{ticker}_rclose_qc.csv")
+        qc_df.to_csv(qc_path, index=False)
+        print(f"[{ticker}] r_close QC → {qc_path}")
+
 
 def main():
-    ap = argparse.ArgumentParser(description="Merge and align minute features (RTH-only) from two folders, then preprocess.")
+    ap = argparse.ArgumentParser(description="Merge & align minute features (RTH-only) + robust r_close.")
     ap.add_argument("--custom_dir",
         default=r"D:\Data mining project\data_mining_fall_2025\data_preprocessing_pipeline\output\custom_indicators_minute",
         help="Path to custom_indicators_minute/")
@@ -246,8 +342,21 @@ def main():
     ap.add_argument("--out_dir",
         default=r"D:\Data mining project\data_mining_fall_2025\feature_extraction\output\intermediate_dataset",
         help="Output directory for merged CSVs")
+
+    # General fill limit for global numeric columns
     ap.add_argument("--fill_limit", type=int, default=3,
-        help="Maximum consecutive minutes to fill using two-sided averaging within a day.")
+        help="Maximum consecutive minutes to fill using two-sided averaging within a day (general columns).")
+
+    # r_close-specific repair & QC
+    ap.add_argument("--rclose_fill_limit", type=int, default=1,
+        help="Per-day limited fill used ONLY for r_close input (first pass).")
+    ap.add_argument("--rclose_min_valid", type=float, default=0.70,
+        help="Minimum per-day valid ratio required for r_close; below this we try extra_limit.")
+    ap.add_argument("--rclose_extra_limit", type=int, default=2,
+        help="If a day's r_close valid ratio < threshold, retry that day with this higher limit (must be >= rclose_fill_limit).")
+    ap.add_argument("--write_qc", action="store_true",
+        help="Write per-day r_close QC CSV under <out_dir>/_qc/.")
+
     args = ap.parse_args()
 
     # Find common tickers present in BOTH folders
@@ -262,9 +371,23 @@ def main():
 
     print(f"Tickers to process ({len(common)}): {', '.join(common)}")
 
+    # Validate extra limit config
+    if args.rclose_extra_limit < args.rclose_fill_limit:
+        raise SystemExit("--rclose_extra_limit must be >= --rclose_fill_limit")
+
     for tic in common:
         try:
-            process_one_ticker(tic, custom_files[tic], indicator_files[tic], args.out_dir, fill_limit=args.fill_limit)
+            process_one_ticker(
+                tic,
+                custom_files[tic],
+                indicator_files[tic],
+                args.out_dir,
+                fill_limit=args.fill_limit,
+                rclose_fill_limit=args.rclose_fill_limit,
+                rclose_min_valid=args.rclose_min_valid,
+                rclose_extra_limit=args.rclose_extra_limit,
+                write_qc=args.write_qc
+            )
         except Exception as e:
             print(f"[{tic}] ERROR: {e}")
 

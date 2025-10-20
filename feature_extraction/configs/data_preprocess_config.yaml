@@ -1,0 +1,212 @@
+# =========================
+# data_preprocess_config.yaml
+# =========================
+
+# -------- What to fetch (Polygon) --------
+stocks:
+  - AAPL
+  - MSFT
+  - AMZN
+  - GOOGL
+  - META
+  - TSLA
+  - NVDA
+  - BRK.B
+  - JPM
+  - V
+  - JNJ
+  - WMT
+  - PG
+  - MA
+  - HD
+  - XOM
+  - UNH
+  - DIS
+  - PFE
+  - KO
+
+date_range:
+  from: "2020-01-01"
+  to:   "2020-12-31"
+  # 采样粒度（merge 的输入节拍 & FFT/CWT/AGG 的 sampling）:
+  # 可设: minute | hour | day
+  granularity: "minute"
+  multiplier: 1
+
+# load_data.py 的根输出目录（其下会产生 aggregates_{cad}/ indicators_{cad}/ custom_indicators_{cad}/ ...）
+output_dir: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output"
+
+fetch:
+  # ---- Price / Market Data ----
+  aggregates: true
+  previous_close: false
+  snapshots: true
+  daily_open_close: false
+
+  # ---- Fundamentals / Reference ----
+  ticker_details: true
+  dividends: true
+  splits: true
+  financials: true
+  analyst_ratings: false
+  corporate_actions: false
+
+  # ---- Technical Indicators (由 load_data 写到 indicators_{cad} / custom_indicators_{cad})
+  moving_averages: true
+  volatility: true
+  momentum: true
+  custom_indicators: true
+
+  # ---- Miscellaneous ----
+  news: true
+  market_status: true
+
+api_settings:
+  api_key: "BKFM2rlGDCk0OlQ2TfcxDOLOQXMtquS4"
+  adjusted: true
+  max_results_per_call: 50000
+  parallel_downloads: true
+  trace_requests: false
+  # 说明：load_data 已写出 tz-aware 的 ET 时间戳（America/New_York）。
+  # 若遇到旧的 naive CSV，merge 会用下方 input_timestamp_tz=UTC 做兜底本地化再转 ET。
+
+# -------- Merge (controls merge_data.py) --------
+merge:
+  enabled: true
+
+  # 仅当读取到“naive”旧文件时才会用：把 naive 按此时区本地化再转 ET。
+  input_timestamp_tz: "UTC"
+
+  timezone: "America/New_York"
+  session: "rth"  # intraday 自动使用；若 granularity=day 将自动使用 "day"
+
+  # 小时粒度时 15:30–16:00 的处理：drop|keep_half_bar|pad_to_full_hour
+  rth_end_handling: "drop_last_half_hour"
+
+  # 填补上限（以“bar”为单位；minute=分钟，hour=小时）
+  fill_limit_bars: 3
+
+  rclose:
+    fill_limit_bars: 1
+    min_valid_ratio: 0.70
+    extra_limit_bars: 2
+
+  inputs:
+    # 与 load_data 的 output_dir 对齐，使用 {cad} 自动切换 minute/hour/day
+    custom_indicators_dir: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\custom_indicators_{cad}"
+    indicators_dir:        "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\indicators_{cad}"
+
+  outputs:
+    # 合并后的中间数据
+    merged_dir: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\intermediate_dataset_{cad}"
+    write_qc: true
+
+# -------- FFT (Full-window mode; controls FFT.py) --------
+fft:
+  enabled: true
+
+  inputs:
+    # 与 merge.outputs.merged_dir 保持一致（支持 {cad}；由 date_range.granularity 决定）
+    merged_dir: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\intermediate_dataset_{cad}"
+
+  outputs:
+    # 所有特征最终写在这里：<features_root>/<TICKER>/fft_<sampling>/
+    features_root: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\features"
+
+  # 做 FFT 的序列名称（必须在合并后的 CSV 里存在）
+  series: ["spread_vwap_norm", "volume_z_by_tod", "r_close", "bb_bw_20"]
+
+  # Welch 配置（以“bar”为采样单位，脚本会自动夹紧 ≤ 窗口长度）
+  welch:
+    nperseg: 256
+    noverlap: 128
+
+  # 频段阈值（单位=bar；对 minute=分钟，对 hour=小时，对 day=天）
+  bands:
+    lo_min_period_bars: 60    # 低频：周期 > 60 bar
+    mid_min_period_bars: 15   # 中频：15–60 bar
+    mid_max_period_bars: 60
+    hi_max_period_bars: 15    # 高频：周期 < 15 bar
+
+  # 质量阈值（窗口内拼接后的整体序列）
+  quality:
+    gap_ratio_thresh: 0.10      # 缺失占比上限
+    max_gap_run_thresh: 30       # 最长连续缺口（bar）
+    min_bars_ratio: 0.75         # 有效 bar 覆盖率下限（相对该窗口理论最大 bar 数）
+
+  # 输出层级（不能比 sampling 更细）：
+  # sampling=minute 时可包含: hour/day/week/month/quarter/year
+  # sampling=hour   时可包含: day/week/month/quarter/year
+  # sampling=day    时可包含: week/month/quarter/year
+  reporting:
+    cadences: ["day", "week"]   # 例：minute→["week"]；若改 hour→["month"] 等
+
+# -------- CWT (Full-window mode; controls CWT.py) --------
+cwt:
+  enabled: true
+
+  inputs:
+    # 与 merge.outputs.merged_dir 保持一致（支持 {cad}；由 date_range.granularity 决定）
+    merged_dir: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\intermediate_dataset_{cad}"
+
+  outputs:
+    # 特征输出：<features_root>/<TICKER>/cwt_<sampling>/
+    features_root: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\features"
+
+  # 要做 CWT 的序列；缺省会用 r_close（若不存在则由 close 现算）
+  series: ["r_close"]
+
+  # 小波配置（单位=bar；minute=分钟、hour=小时、day=天）
+  wavelet:
+    name: "morl"            # 可换 "cmor1.5-1.0" 等复数小波
+    period_min_bars: 5      # 最短周期（bar）
+    period_max_bars: 120    # 最长周期（bar）
+    num_scales: 36          # 对数间隔尺度数
+    ridge_percentile: 95.0  # ridge 阈值分位（若后续开启 ridge 细节）
+
+  # 频段阈值（与 FFT 保持一致，单位=bar）
+  bands:
+    lo_min_period_bars: 60
+    mid_min_period_bars: 15
+    mid_max_period_bars: 60
+    hi_max_period_bars: 15
+
+  # 质量阈值（对“窗口内拼接后的整体序列”评估，逻辑与 FFT 一致）
+  quality:
+    cover_ratio_thresh: 0.70   # COI 有效覆盖率下限
+    gap_ratio_thresh: 0.20     # 缺口占比上限
+    max_gap_run_thresh: 30     # 最长连续缺口（bar）
+    min_bars_ratio: 0.75       # 有效 bar 覆盖率下限（相对窗口理论最大 bar 数）
+
+  # 输出层级（不能比 sampling 更细），与 FFT 同步：
+  # sampling=minute → 可 ["day","week","month","quarter","year"]
+  # sampling=hour   → 可 ["day","week","month","quarter","year"]
+  # sampling=day    → 可 ["week","month","quarter","year"]
+  reporting:
+    cadences: ["day", "week"]     # 示例：minute→["week"]；hour→可设 ["month"] 等
+
+  # 是否落盘 ridge 细节（通常不需要）
+  save_ridges: false
+
+# -------- AGG (Per-day then aggregate; controls AGG.py) --------
+agg:
+  enabled: true
+
+  inputs:
+    # 与 merge.outputs.merged_dir 保持一致（支持 {cad}；由 date_range.granularity 决定）
+    merged_dir: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\intermediate_dataset_{cad}"
+
+  outputs:
+    # 输出：<features_root>/<TICKER>/agg_<sampling>/
+    features_root: "D:\\Data mining project\\data_mining_fall_2025\\feature_extraction\\output\\features"
+
+  reporting:
+    cadences: ["day", "week"]   # 先产出 day.csv，再聚合到周
+    reducer: "median"          # "median" | "mean" | "weighted_mean"
+    weighting: "by_valid_bars" # weighted_mean 时用 daily.valid_bars 作为权重
+
+  quality:
+    min_valid_ratio_open15: 0.50
+    min_valid_ratio_last10: 0.50
+    min_valid_ratio_reversal: 0.50
+    min_valid_count_run: 5
